@@ -196,9 +196,7 @@ def main(tile_dir: str, output: str, group_n: int,
 
             # 学習データの residual 統計収集 (陸地ピクセルのみ)
             if split == "train" and pct_land > 0.01:
-                # ダウンサンプル: 1/8 解像度の land_mask で近似
-                lm_small = land_mask[::8, ::8]  # roughly same spatial position
-                rvals = residual[lm_small].ravel() if lm_small.any() else residual.ravel()
+                rvals = residual[land_mask].ravel() if land_mask.any() else residual.ravel()
                 residual_train_vals.append(rvals[:min(len(rvals), 10000)])
 
             total_land += int(np.sum(land_mask))
