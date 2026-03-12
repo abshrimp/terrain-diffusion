@@ -249,7 +249,7 @@ experiments/
 experiment_data/
 
 # Data directory (with exceptions)
-data/*
+# data/*
 !data/splits.csv
 !data/manual_terrain_scores.csv
 !data/global/
