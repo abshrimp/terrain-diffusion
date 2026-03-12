@@ -90,16 +90,19 @@ class CoarseDataset(Dataset):
         # 時間ステップのサンプリング (1次元)
         t = torch.atan(torch.exp(10 * torch.rand(1) - 5)).view(-1, 1, 1)
         
-        # 条件画像（1チャンネル）に対してノイズを付加
-        cond_img = tensor_data / self.sigma_data
+        # --- [修正ポイント] ---
+        # cond_img が意図せず複数チャンネルにならないよう、元の tensor_data と
+        # まったく同じ形状（1チャンネル）であることを保証します。
+        cond_img = tensor_data.clone() / self.sigma_data
         cond_img = cond_img * torch.cos(t) + torch.randn_like(cond_img) * torch.sin(t)
         
-        # cond_inputs (スカラー値のリスト)
         cond_inputs = [torch.log(torch.tan(s) / 8) for s in t.flatten()]
 
+        # print("DEBUG Shapes:", tensor_data.shape, cond_img.shape) # 不安ならデバッグ用にprintを入れてもOK
+
         return {
-            'image': tensor_data, 
-            'cond_img': cond_img, 
+            'image': tensor_data,      # (1, 16, 16) であるべき
+            'cond_img': cond_img,      # (1, 16, 16) であるべき
             'cond_inputs': cond_inputs
         }
 
