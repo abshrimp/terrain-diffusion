@@ -37,8 +37,8 @@ def process_encoded_dataset(dataset, resolution, encoder_model_path, use_fp16, c
     
     printed_latent_shape = False
 
-    # if compile_model:
-    #     model = torch.compile(model)
+    if compile_model:
+        model = torch.compile(model)
 
     print(f"Normalizing residual with mean {residual_mean} and std {residual_std}")
 

@@ -54,7 +54,7 @@ class ConsistencyTrainer(Trainer):
             self.autoencoder = EDMUnet2D.from_pretrained(autoencoder_path)
             self.autoencoder.eval()
             self.autoencoder.requires_grad_(False)
-            self.autoencoder = torch.compile(self.autoencoder)
+            # self.autoencoder = torch.compile(self.autoencoder)
         else:
             self.autoencoder = None
         
