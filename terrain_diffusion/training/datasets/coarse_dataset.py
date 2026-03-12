@@ -4,36 +4,27 @@ import random
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-import matplotlib.pyplot as plt
 
 class CoarseDataset(Dataset):
     """
-    カスタムの .npy タイルデータ（標高1チャンネル）を読み込むデータセット。
-    拡散モデルの学習に必要なノイズ付加（cond_img, cond_inputs）などの処理は元コードに準拠。
+    Japanese DEM (.npy) 用のカスタム CoarseDataset。
+    設定ファイルからの不要な引数は無視し、ローカルのタイルデータを読み込んで
+    元の学習パイプラインが要求する11チャンネルの入出力形式を再現します。
     """
-    def __init__(self, 
-                 data_dir="data/custom_tiles",
-                 crop_size=16, # 学習時のパッチサイズ。config等で指定される場合はそちらが優先されます
-                 sigma_data=0.5,
-                 **kwargs): # configから余分な引数が渡されてもエラーにならないようにkwargsを追加
+    def __init__(self, **kwargs):
+        # .cfg から渡される h5_file や etopo_file などの引数は受け取りますが、無視します。
+        self.data_dir = './data/custom_tiles_processed'
+        self.file_list = glob.glob(os.path.join(self.data_dir, '*.npy'))
+        self.crop_size = kwargs.get('crop_size', 16) # デフォルトは16
+        self.sigma_data = kwargs.get('sigma_data', 0.5)
+        self.max_elev = 3200.0
         
-        self.data_dir = data_dir
-        self.crop_size = crop_size
-        self.sigma_data = sigma_data
-        
-        # タイルデータのパスを取得
-        self.file_paths = sorted(glob.glob(os.path.join(self.data_dir, "12_*.npy")))
-        if len(self.file_paths) == 0:
-            print(f"Warning: No .npy files found in {self.data_dir}")
-            
-        self.max_elevation = 3200.0
+        if len(self.file_list) == 0:
+            print(f"Warning: {self.data_dir} に .npy ファイルが見つかりません。")
 
     def __len__(self):
-        """
-        元のコード同様、エポックごとのイテレーション数を固定値にするか、
-        データ数にするか選べます。ここでは実際のファイル数とします。
-        """
-        return len(self.file_paths)
+        # 元の実装に合わせて、1エポックあたりのステップ数を維持するために十分な数を返します
+        return 10000 
 
     def set_seed(self, seed):
         random.seed(seed)
@@ -41,85 +32,51 @@ class CoarseDataset(Dataset):
         torch.manual_seed(seed)
 
     def __getitem__(self, idx):
-        # 1. データの読み込みと前処理
-        # 元コードはクロップを行っていましたが、npyが既に256x256タイルであるため、
-        # ここではタイルを読み込み、必要に応じてcrop_sizeで切り出します。
-        data = np.load(self.file_paths[idx])
+        # 1. ランダムにタイルを1枚選んで読み込む
+        file_path = random.choice(self.file_list)
+        data_np = np.load(file_path) # (256, 256)
         
-        # 欠損値(-9999.0)や負の値を0にし、最大値を3200に制限
-        data = np.clip(data, 0.0, self.max_elevation)
+        # 2. 16x16 (crop_size) のランダムクロップを切り出す
+        h, w = data_np.shape
+        max_i = h - self.crop_size
+        max_j = w - self.crop_size
         
-        # ランダムクロップの処理（学習を安定させるため、元の仕様に合わせてランダムに切り出す）
-        h, w = data.shape
-        if h > self.crop_size and w > self.crop_size:
-            i = random.randint(0, h - self.crop_size)
-            j = random.randint(0, w - self.crop_size)
-            crop = data[i:i+self.crop_size, j:j+self.crop_size]
+        if max_i > 0 and max_j > 0:
+            i = random.randint(0, max_i)
+            j = random.randint(0, max_j)
+            crop = data_np[i:i+self.crop_size, j:j+self.crop_size]
         else:
-            # 万が一データがcrop_sizeより小さい場合のフォールバック（通常は起こりません）
-            crop = data[:self.crop_size, :self.crop_size]
+            crop = data_np[:self.crop_size, :self.crop_size]
+            
+        # 3. 標高を正規化 (0~3200m をおおよそ -1.0 ~ 1.0 にスケーリング)
+        elev_norm = (crop / (self.max_elev / 2.0)) - 1.0
         
-        # 拡散モデル向けに [-1, 1] の範囲に正規化
-        crop_normalized = (crop / (self.max_elevation / 2.0)) - 1.0
+        # 4. モデルが要求する6チャンネルのTensorを作成
+        # Ch 0: 標高 (Elevation mean)
+        # Ch 1: 標高の粗さ (Elevation p5 - 便宜上 0.0 で埋める)
+        # Ch 2~5: 気候データ (ダミーとして全て 0.0)
+        data = torch.zeros((6, self.crop_size, self.crop_size), dtype=torch.float32)
+        data[0] = torch.from_numpy(elev_norm)
+        # Ch 1~5 は初期化時の zeros のまま
         
-        # PyTorchのTensorに変換し、チャンネル次元を追加: (1, crop_size, crop_size)
-        tensor_data = torch.from_numpy(crop_normalized).float().unsqueeze(0)
-        
-        # 2. データ拡張（Data Augmentation） - 元コード準拠
+        # 5. データオーグメンテーション (反転・回転)
         if random.random() > 0.5:
-            tensor_data = torch.flip(tensor_data, dims=[-2]) # 上下反転
+            data = torch.flip(data, dims=[-2])
         k = random.randint(0, 3)
         if k > 0:
-            tensor_data = torch.rot90(tensor_data, k=k, dims=[-2, -1]) # 90度回転
+            data = torch.rot90(data, k=k, dims=[-2, -1])
             
-        tensor_data = tensor_data * self.sigma_data
+        # スケーリング (元のコードを踏襲)
+        data = data * self.sigma_data
         
-        # 3. 拡散モデル用の条件付けとノイズ処理 - 元コード準拠
-        # 元コードは6チャンネル（標高、気候等）を想定し、1チャンネル(標高)以外をcond_imgとしていましたが、
-        # 今回は1チャンネルしかありません。そのため、cond_imgを生成するための元のロジックを1チャンネル用に調整します。
-        
-        # 元コード: t = torch.atan(torch.exp(10 * torch.rand(5) - 5)).view(-1, 1, 1)
-        # 今回はチャンネルが1つしかないので、時間ステップ t も1つ（あるいはモデルの入力仕様に合わせてゼロベクトル等）にします。
-        # terrain-diffusionのアーキテクチャに依存しますが、一般的には条件付け画像がない場合は、cond_imgは不要か、ゼロテンソルを渡します。
-        # ここでは安全のため、元コードのノイズ付加ロジックを「自己条件付け」や「低解像度からのアップサンプリング条件付け」のダミーとして簡略化します。
-        
-        # [重要] 1チャンネル入力のみの場合、条件付け（cond_img, cond_inputs）をどう扱うかはモデル構造に強く依存します。
-        # 以下の実装は、モデルが「cond_img」と「cond_inputs」を受け取ることを前提としたダミー処理です。
-        # もし `diffusion_coarse.cfg` で in_channels=1 に変更しているなら、cond_imgのチャンネル数もそれに合わせる必要があります。
-        
-        # 時間ステップのサンプリング (1次元)
-        t = torch.atan(torch.exp(10 * torch.rand(1) - 5)).view(-1, 1, 1)
-        
-        # --- [修正ポイント] ---
-        # cond_img が意図せず複数チャンネルにならないよう、元の tensor_data と
-        # まったく同じ形状（1チャンネル）であることを保証します。
-        cond_img = tensor_data.clone() / self.sigma_data
+        # 6. 条件付き入力 (cond_img) の生成処理 (元のアルゴリズムを完全再現)
+        # Ch 1 を除外した 5チャンネル分を取り出す
+        t = torch.atan(torch.exp(10 * torch.rand(5) - 5)).view(-1, 1, 1)
+        cond_img = data[[0, 2, 3, 4, 5]] / self.sigma_data
         cond_img = cond_img * torch.cos(t) + torch.randn_like(cond_img) * torch.sin(t)
         
-        cond_inputs = [torch.log(torch.tan(s) / 8) for s in t.flatten()]
-
-        # print("DEBUG Shapes:", tensor_data.shape, cond_img.shape) # 不安ならデバッグ用にprintを入れてもOK
-
         return {
-            'image': tensor_data,      # (1, 16, 16) であるべき
-            'cond_img': cond_img,      # (1, 16, 16) であるべき
-            'cond_inputs': cond_inputs
+            'image': data, 
+            'cond_img': cond_img, 
+            'cond_inputs': [torch.log(torch.tan(s) / 8) for s in t.flatten()]
         }
-
-if __name__ == "__main__":
-    # テスト用の実行コード
-    dataset = CoarseDataset(data_dir='data/custom_tiles', crop_size=32)
-    
-    if len(dataset) > 0:
-        sample = dataset[0]
-        print("Image shape:", sample['image'].shape)
-        print("Cond_img shape:", sample['cond_img'].shape)
-        
-        fig, axes = plt.subplots(1, 2, figsize=(8, 4))
-        axes[0].matshow(sample['image'][0].numpy(), vmin=-1, vmax=1)
-        axes[0].set_title('Image')
-        axes[1].matshow(sample['cond_img'][0].numpy())
-        axes[1].set_title('Cond_img')
-        plt.show()
-    else:
-        print("No data available to plot.")
