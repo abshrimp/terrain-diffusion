@@ -17,6 +17,7 @@ terrain-diffusion 学習用 HDF5 データセットに変換するスクリプ�
       --output data/japan_dataset.h5
 """
 
+import sys
 import click
 import numpy as np
 import h5py
@@ -24,6 +25,8 @@ import torch
 from pathlib import Path
 from tqdm import tqdm
 
+# terrain_diffusion パッケージをインポートできるようにルートを追加
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from terrain_diffusion.data.laplacian_encoder import laplacian_encode
 
 # ---- 定数 ----------------------------------------------------------------
