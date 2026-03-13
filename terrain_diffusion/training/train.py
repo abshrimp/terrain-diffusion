@@ -99,11 +99,18 @@ def main(ctx, config_path, ckpt_path, model_ckpt_path, debug_run, resume_id, ove
     
     # Setup state and accelerator
     state = SerializableEasyDict({'epoch': 0, 'step': 0, 'seen': 0})
-    accelerator = Accelerator(
-        mixed_precision=resolved['training']['mixed_precision'],
-        gradient_accumulation_steps=resolved['training']['gradient_accumulation_steps'],
-        log_with=None
-    )
+    accelerator_kwargs = {
+        'mixed_precision': resolved['training']['mixed_precision'],
+        'gradient_accumulation_steps': resolved['training']['gradient_accumulation_steps'],
+        'log_with': None,
+    }
+    if 'dynamo_backend' in resolved['training']:
+        accelerator_kwargs['dynamo_backend'] = resolved['training']['dynamo_backend']
+    try:
+        accelerator = Accelerator(**accelerator_kwargs)
+    except TypeError:
+        accelerator_kwargs.pop('dynamo_backend', None)
+        accelerator = Accelerator(**accelerator_kwargs)
     
     trainer_class = resolved['trainer']
     trainer = trainer_class(config, resolved, accelerator, state)
