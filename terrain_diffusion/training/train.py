@@ -5,9 +5,6 @@ from datetime import datetime
 import numpy as np
 import os
 import torch
-# Use TF32 to route through cublasGemmEx instead of cublasSgemm (workaround for CUDA 13.x)
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
 from accelerate import Accelerator
 from confection import Config, registry
 import yaml

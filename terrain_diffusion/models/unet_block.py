@@ -102,13 +102,15 @@ class UNetBlock(nn.Module):
     def attn(self, x):
         y = self.attn_qkv(x)
         y = y.reshape(y.shape[0], self.num_heads, -1, 3, y.shape[2] * y.shape[3])
-        q, k, v = normalize(y, dim=2).unbind(3) # pixel norm & split, shape: [B, H, C//H, HW]
-        # Use SDPA (cuDNN Flash Attention) to avoid cublasSgemmStridedBatched on CUDA 13.x.
-        # SDPA expects [B, H, seq, head_dim], so transpose the last two dims.
-        y = nn.functional.scaled_dot_product_attention(
-            q.transpose(-2, -1), k.transpose(-2, -1), v.transpose(-2, -1)
-        )  # [B, H, HW, C//H]
-        y = y.transpose(-2, -1)  # [B, H, C//H, HW]
+        q, k, v = normalize(y, dim=2).unbind(3) # pixel norm & split
+        w = torch.einsum('nhcq,nhck->nhqk', q, k / torch.sqrt(torch.tensor(q.shape[2], dtype=q.dtype, device=q.device))).softmax(dim=3)
+        y = torch.einsum('nhqk,nhck->nhcq', w, v)
+        return self.attn_proj(y.reshape(*x.shape))
+            
+        y = self.attn_qkv(x)
+        y = y.reshape(y.shape[0], self.num_heads, -1, 3, y.shape[2] * y.shape[3])
+        q, k, v = normalize(y, dim=2).unbind(3)
+        y = nn.functional.scaled_dot_product_attention(q, k, v)
         return self.attn_proj(y.reshape(*x.shape))
 
     def forward(self, x, emb):

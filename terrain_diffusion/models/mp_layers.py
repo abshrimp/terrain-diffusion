@@ -213,9 +213,8 @@ class MPConv(nn.Module):
         w = w.to(x.dtype)
 
         # If the kernel is 0D, just do a linear layer
-        # Use conv1d instead of linear to avoid cublasSgemm issues on CUDA 13.x
         if w.ndim == 2:
-            return nn.functional.conv1d(x.unsqueeze(-1), w.unsqueeze(-1)).squeeze(-1)
+            return nn.functional.linear(x, w)
         
         # Otherwise do a 2D convolution
         assert w.ndim == 4

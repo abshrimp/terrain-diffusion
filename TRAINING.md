@@ -25,6 +25,56 @@ Download `bio 10m` and `bio 30s` [here](https://www.worldclim.org/data/worldclim
 After all data has been downloaded, run:
 ```./util_scripts/create_base_dataset.sh```
 
+### Create Dataset from local `./tiles/*.npy` (custom)
+
+If you want to train on your own tiles (for example `../tiles/12_x_y.npy`) instead of the downloaded DEM folders, build an HDF5 dataset directly:
+
+```bash
+python -m terrain_diffusion build-tiles-dataset \
+	--tiles-folder ../tiles \
+	--output-file data/dataset_tiles.h5 \
+	--resolution 30 \
+	--split-ratio 0.2 \
+	--overwrite
+```
+
+Then point your training configs at `data/dataset_tiles.h5` and use `subset_resolutions=[30, 30]` (or the `--resolution` value you chose).
+
+For convenience, tiles-specific configs are included:
+
+- `configs/autoencoder/autoencoder_x8_tiles.cfg`
+- `configs/diffusion_decoder/diffusion_decoder_64-3_tiles.cfg`
+- `configs/diffusion_base/diffusion_192-3_tiles.cfg`
+
+Training order with local tiles:
+
+```bash
+# 1) Autoencoder
+python -m terrain_diffusion train --config ./configs/autoencoder/autoencoder_x8_tiles.cfg
+
+# 2) Save autoencoder for latent creation
+python -m terrain_diffusion.training.save_model -c checkpoints/autoencoder_x8_tiles/latest_checkpoint -s 0.05
+mkdir -p checkpoints/models/autoencoder_x8_tiles
+mv checkpoints/autoencoder_x8_tiles/latest_checkpoint/saved_model/* checkpoints/models/autoencoder_x8_tiles/
+
+# 3) Build latents into the same HDF5
+python -m terrain_diffusion build-encoded-dataset \
+	--dataset data/dataset_tiles.h5 \
+	--resolution 30 \
+	--encoder ./checkpoints/models/autoencoder_x8_tiles \
+	--use-fp16 \
+	--compile-model \
+	--residual-mean 0.0 \
+	--residual-std 0.7 \
+	--overwrite
+
+# 4) Train decoder
+accelerate launch -m terrain_diffusion train --config ./configs/diffusion_decoder/diffusion_decoder_64-3_tiles.cfg
+
+# 5) Train base
+accelerate launch -m terrain_diffusion train --config ./configs/diffusion_base/diffusion_192-3_tiles.cfg
+```
+
 ### Train AutoEncoder
 
 ##### Prerequisites: Base dataset, 18GB GPU RAM
