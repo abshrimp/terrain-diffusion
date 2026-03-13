@@ -226,7 +226,7 @@ class DiffusionTrainer(Trainer):
         autoencoder = self.autoencoder.to(self.accelerator.device)
         
         with torch.no_grad(), self.accelerator.autocast():
-            kid = KernelInceptionDistance(normalize=True).to(self.accelerator.device)
+            kid = KernelInceptionDistance(normalize=True, subset_size=min(50, n_images // 4)).to(self.accelerator.device)
             
             samples_generated = 0
             
@@ -293,7 +293,7 @@ class DiffusionTrainer(Trainer):
         scheduler = self.scheduler
         
         with torch.no_grad(), self.accelerator.autocast():
-            kid = KernelInceptionDistance(normalize=True).to(self.accelerator.device)
+            kid = KernelInceptionDistance(normalize=True, subset_size=min(50, n_images // 4)).to(self.accelerator.device)
             
             samples_generated = 0
             
