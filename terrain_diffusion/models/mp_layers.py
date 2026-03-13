@@ -210,11 +210,12 @@ class MPConv(nn.Module):
         # Weights are already normalized, but this is critical so that gradients are propogated through the normalization.
         w = normalize(w)
         w = w * (gain / np.sqrt(w[0].numel()))
-        w = w.to(x.dtype)
 
         # If the kernel is 0D, just do a linear layer
         if w.ndim == 2:
-            return nn.functional.linear(x, w)
+            out = nn.functional.linear(x.to(torch.float32), w)
+            return out.to(x.dtype)
+        w = w.to(x.dtype)
         
         # Otherwise do a 2D convolution
         assert w.ndim == 4

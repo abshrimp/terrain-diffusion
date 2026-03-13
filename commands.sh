@@ -28,6 +28,8 @@ python -m terrain_diffusion build-encoded-dataset \
   --residual-mean 0.0 \
   --residual-std 0.7 \
   --overwrite
+  
+sudo mount -o remount,size=8G /dev/shm
 
 # 6) Decoder 学習
 accelerate launch -m terrain_diffusion train \
