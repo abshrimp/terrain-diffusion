@@ -226,7 +226,7 @@ class DiffusionTrainer(Trainer):
         autoencoder = self.autoencoder.to(self.accelerator.device)
         
         with torch.no_grad(), self.accelerator.autocast():
-            kid = KernelInceptionDistance(normalize=True).to(self.accelerator.device)
+            kid = KernelInceptionDistance(normalize=True).to('cpu')
             
             samples_generated = 0
             
@@ -269,9 +269,8 @@ class DiffusionTrainer(Trainer):
                 # Update KID metric in fp32 to avoid bf16 GEMM instability
                 fake_kid = self._normalize_and_process_terrain(terrain)
                 real_kid = self._normalize_and_process_terrain(real_terrain)
-                with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
-                    kid.update(fake_kid, real=False)
-                    kid.update(real_kid, real=True)
+                kid.update(fake_kid.cpu(), real=False)
+                kid.update(real_kid.cpu(), real=True)
                 
                 samples_generated += images.shape[0]
                 pbar.update(images.shape[0])
@@ -281,8 +280,7 @@ class DiffusionTrainer(Trainer):
             autoencoder = autoencoder.to('cpu')
             
             # Calculate final KID scores in fp32
-            with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
-                kid_mean, kid_std = kid.compute()
+            kid_mean, kid_std = kid.compute()
             print(f"Final KID Score (original): {kid_mean.item():.6f} ± {kid_std.item():.6f}")
             return {
                 'val/kid_mean': kid_mean.item(), 
@@ -297,7 +295,7 @@ class DiffusionTrainer(Trainer):
         scheduler = self.scheduler
         
         with torch.no_grad(), self.accelerator.autocast():
-            kid = KernelInceptionDistance(normalize=True).to(self.accelerator.device)
+            kid = KernelInceptionDistance(normalize=True).to('cpu')
             
             samples_generated = 0
             
@@ -349,9 +347,8 @@ class DiffusionTrainer(Trainer):
                 # Update KID metric in fp32 to avoid bf16 GEMM instability
                 fake_kid = self._normalize_and_process_terrain(samples)
                 real_kid = self._normalize_and_process_terrain(real_samples)
-                with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
-                    kid.update(fake_kid, real=False)
-                    kid.update(real_kid, real=True)
+                kid.update(fake_kid.cpu(), real=False)
+                kid.update(real_kid.cpu(), real=True)
                 
                 samples_generated += images.shape[0]
                 pbar.update(images.shape[0])
@@ -359,8 +356,7 @@ class DiffusionTrainer(Trainer):
             pbar.close()
             
             # Calculate final KID scores in fp32
-            with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
-                kid_mean, kid_std = kid.compute()
+            kid_mean, kid_std = kid.compute()
             print(f"Final Decoder KID Score (original): {kid_mean.item():.6f} ± {kid_std.item():.6f}")
             return {
                 'val/kid_mean': kid_mean.item(), 

@@ -298,7 +298,7 @@ class ConsistencyTrainer(Trainer):
         pbar = tqdm(total=n_images, desc="Calculating Decoder KID")
         scheduler = self.scheduler
         with torch.no_grad(), self.accelerator.autocast():
-            kid = KernelInceptionDistance(normalize=True).to(self.accelerator.device)
+            kid = KernelInceptionDistance(normalize=True).to('cpu')
             samples_generated = 0
             while samples_generated < n_images:
                 batch = recursive_to(next(data_iter), device=self.accelerator.device)
@@ -332,15 +332,13 @@ class ConsistencyTrainer(Trainer):
 
                 fake_kid = self._normalize_and_process_terrain(samples)
                 real_kid = self._normalize_and_process_terrain(real_samples)
-                with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
-                    kid.update(fake_kid, real=False)
-                    kid.update(real_kid, real=True)
+                kid.update(fake_kid.cpu(), real=False)
+                kid.update(real_kid.cpu(), real=True)
 
                 samples_generated += images.shape[0]
                 pbar.update(images.shape[0])
             pbar.close()
-            with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
-                kid_mean, kid_std = kid.compute()
+            kid_mean, kid_std = kid.compute()
             print(f"Final Decoder KID Score (consistency 2-step): {kid_mean.item():.6f} ± {kid_std.item():.6f}")
             return {
                 'val/kid_mean': kid_mean.item(),
@@ -355,7 +353,7 @@ class ConsistencyTrainer(Trainer):
         scheduler = self.scheduler
         autoencoder = self.autoencoder.to(self.accelerator.device)
         with torch.no_grad(), self.accelerator.autocast():
-            kid = KernelInceptionDistance(normalize=True).to(self.accelerator.device)
+            kid = KernelInceptionDistance(normalize=True).to('cpu')
             samples_generated = 0
             while samples_generated < n_images:
                 batch = recursive_to(next(data_iter), device=self.accelerator.device)
@@ -375,16 +373,14 @@ class ConsistencyTrainer(Trainer):
                 
                 fake_kid = self._normalize_and_process_terrain(terrain)
                 real_kid = self._normalize_and_process_terrain(real_terrain)
-                with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
-                    kid.update(fake_kid, real=False)
-                    kid.update(real_kid, real=True)
+                kid.update(fake_kid.cpu(), real=False)
+                kid.update(real_kid.cpu(), real=True)
 
                 samples_generated += images.shape[0]
                 pbar.update(images.shape[0])
             pbar.close()
             autoencoder = autoencoder.to('cpu')
-            with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
-                kid_mean, kid_std = kid.compute()
+            kid_mean, kid_std = kid.compute()
             print(f"Final KID Score (consistency 2-step): {kid_mean.item():.6f} ± {kid_std.item():.6f}")
             kid = kid.to('cpu')
             del kid
