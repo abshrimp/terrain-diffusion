@@ -330,13 +330,17 @@ class ConsistencyTrainer(Trainer):
                 output_full = torch.sign(output_full) * torch.square(output_full)
                 images_full = torch.sign(images_full) * torch.square(images_full)
 
-                kid.update(self._normalize_and_process_terrain(samples), real=False)
-                kid.update(self._normalize_and_process_terrain(real_samples), real=True)
+                fake_kid = self._normalize_and_process_terrain(samples)
+                real_kid = self._normalize_and_process_terrain(real_samples)
+                with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
+                    kid.update(fake_kid, real=False)
+                    kid.update(real_kid, real=True)
 
                 samples_generated += images.shape[0]
                 pbar.update(images.shape[0])
             pbar.close()
-            kid_mean, kid_std = kid.compute()
+            with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
+                kid_mean, kid_std = kid.compute()
             print(f"Final Decoder KID Score (consistency 2-step): {kid_mean.item():.6f} ± {kid_std.item():.6f}")
             return {
                 'val/kid_mean': kid_mean.item(),
@@ -369,14 +373,18 @@ class ConsistencyTrainer(Trainer):
                 real_terrain = batch['ground_truth']
                 real_terrain = torch.sign(real_terrain) * torch.square(real_terrain)
                 
-                kid.update(self._normalize_and_process_terrain(terrain), real=False)
-                kid.update(self._normalize_and_process_terrain(real_terrain), real=True)
+                fake_kid = self._normalize_and_process_terrain(terrain)
+                real_kid = self._normalize_and_process_terrain(real_terrain)
+                with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
+                    kid.update(fake_kid, real=False)
+                    kid.update(real_kid, real=True)
 
                 samples_generated += images.shape[0]
                 pbar.update(images.shape[0])
             pbar.close()
             autoencoder = autoencoder.to('cpu')
-            kid_mean, kid_std = kid.compute()
+            with torch.autocast(device_type=self.accelerator.device.type, enabled=False):
+                kid_mean, kid_std = kid.compute()
             print(f"Final KID Score (consistency 2-step): {kid_mean.item():.6f} ± {kid_std.item():.6f}")
             kid = kid.to('cpu')
             del kid
