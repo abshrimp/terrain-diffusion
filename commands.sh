@@ -32,7 +32,8 @@ python -m terrain_diffusion build-encoded-dataset \
 # 6) Decoder 学習
 accelerate launch -m terrain_diffusion train \
   --config ./configs/diffusion_decoder/diffusion_decoder_64-3_tiles.cfg \
-  --override training.dynamo_backend=\"no\"
+  --override training.dynamo_backend=\"no\" \
+  --override training.mixed_precision=\"bf16\"
 
 # 7) Decoder を推論用に保存
 python -m terrain_diffusion.training.save_model \

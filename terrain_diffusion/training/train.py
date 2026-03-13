@@ -122,6 +122,8 @@ def main(ctx, config_path, ckpt_path, model_ckpt_path, debug_run, resume_id, ove
     batch_size = config['training']['batch_size']
 
     dataloader_kwargs = dict(resolved.get('dataloader_kwargs', {}))
+    if 'pin_memory_device' in dataloader_kwargs:
+        dataloader_kwargs.pop('pin_memory_device', None)
     train_dataloader = DataLoader(
         LongDataset(train_dataset, shuffle=True),
         batch_size=batch_size,
