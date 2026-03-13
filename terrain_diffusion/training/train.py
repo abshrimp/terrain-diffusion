@@ -5,6 +5,8 @@ from datetime import datetime
 import numpy as np
 import os
 import torch
+# Use cuBLASLt for better CUDA 13.x compatibility
+torch.backends.cuda.preferred_blas_library('cublaslt')
 from accelerate import Accelerator
 from confection import Config, registry
 import yaml
