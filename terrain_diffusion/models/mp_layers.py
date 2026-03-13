@@ -213,14 +213,15 @@ class MPConv(nn.Module):
 
         # If the kernel is 0D, just do a linear layer
         if w.ndim == 2:
-            x_fp32 = x.to(torch.float32)
-            w_fp32 = w.to(torch.float32)
-            if x_fp32.is_cuda:
-                with torch.autocast(device_type='cuda', enabled=False):
-                    out = nn.functional.linear(x_fp32, w_fp32)
+            original_shape = x.shape[:-1]
+            x2 = x.reshape(-1, x.shape[-1])
+            if x2.is_cuda:
+                x4 = x2.unsqueeze(-1).unsqueeze(-1).contiguous()
+                w4 = w.to(x.dtype).unsqueeze(-1).unsqueeze(-1).contiguous()
+                out2 = nn.functional.conv2d(x4, w4).squeeze(-1).squeeze(-1)
             else:
-                out = nn.functional.linear(x_fp32, w_fp32)
-            return out.to(x.dtype)
+                out2 = nn.functional.linear(x2, w.to(x.dtype))
+            return out2.reshape(*original_shape, w.shape[0])
         w = w.to(x.dtype)
         
         # Otherwise do a 2D convolution
