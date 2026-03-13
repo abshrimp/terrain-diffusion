@@ -213,7 +213,13 @@ class MPConv(nn.Module):
 
         # If the kernel is 0D, just do a linear layer
         if w.ndim == 2:
-            out = nn.functional.linear(x.to(torch.float32), w)
+            x_fp32 = x.to(torch.float32)
+            w_fp32 = w.to(torch.float32)
+            if x_fp32.is_cuda:
+                with torch.autocast(device_type='cuda', enabled=False):
+                    out = nn.functional.linear(x_fp32, w_fp32)
+            else:
+                out = nn.functional.linear(x_fp32, w_fp32)
             return out.to(x.dtype)
         w = w.to(x.dtype)
         
