@@ -225,8 +225,8 @@ class DiffusionTrainer(Trainer):
         
         autoencoder = self.autoencoder.to(self.accelerator.device)
         
-        with torch.no_grad(), self.accelerator.autocast():
-            kid = KernelInceptionDistance(normalize=True, subset_size=min(50, n_images // 4)).to(self.accelerator.device)
+        with torch.no_grad():
+            kid = KernelInceptionDistance(normalize=False, subset_size=min(50, n_images // 4)).to(self.accelerator.device)
             
             samples_generated = 0
             
@@ -236,35 +236,36 @@ class DiffusionTrainer(Trainer):
                 cond_img = batch.get('cond_img')
                 conditional_inputs = batch.get('cond_inputs')
                 
-                # Generate samples using diffusion sampling
-                samples = torch.randn(images.shape, generator=generator, device=images.device) * scheduler.sigmas[0]
-                
-                # Sampling loop
-                scheduler.set_timesteps(self.config['evaluation']['kid_scheduler_steps'])
-                for t, sigma in zip(scheduler.timesteps, scheduler.sigmas):
-                    t, sigma = t.to(samples.device), sigma.to(samples.device)
+                with self.accelerator.autocast():
+                    # Generate samples using diffusion sampling
+                    samples = torch.randn(images.shape, generator=generator, device=images.device) * scheduler.sigmas[0]
                     
-                    scaled_input = scheduler.precondition_inputs(samples, sigma)
-                    cnoise = scheduler.trigflow_precondition_noise(sigma.view(-1).expand(samples.shape[0]))
+                    # Sampling loop
+                    scheduler.set_timesteps(self.config['evaluation']['kid_scheduler_steps'])
+                    for t, sigma in zip(scheduler.timesteps, scheduler.sigmas):
+                        t, sigma = t.to(samples.device), sigma.to(samples.device)
+                        
+                        scaled_input = scheduler.precondition_inputs(samples, sigma)
+                        cnoise = scheduler.trigflow_precondition_noise(sigma.view(-1).expand(samples.shape[0]))
+                        
+                        # Get model predictions
+                        if cond_img is not None:
+                            x = torch.cat([scaled_input, cond_img], dim=1)
+                        else:
+                            x = scaled_input
+                        self.model.eval()
+                        model_output = self.model(x, noise_labels=cnoise, conditional_inputs=conditional_inputs)
+                        
+                        samples = scheduler.step(model_output, t, samples).prev_sample
+                        
+                    samples = samples / scheduler.config.sigma_data
                     
-                    # Get model predictions
-                    if cond_img is not None:
-                        x = torch.cat([scaled_input, cond_img], dim=1)
-                    else:
-                        x = scaled_input
-                    self.model.eval()
-                    model_output = self.model(x, noise_labels=cnoise, conditional_inputs=conditional_inputs)
+                    # Decode latents to terrain
+                    terrain = self._decode_latents_to_terrain(samples[:, :4], samples[:, 4:5], autoencoder, scheduler)
+                    terrain = torch.sign(terrain) * torch.square(terrain)
                     
-                    samples = scheduler.step(model_output, t, samples).prev_sample
-                    
-                samples = samples / scheduler.config.sigma_data
-                
-                # Decode latents to terrain
-                terrain = self._decode_latents_to_terrain(samples[:, :4], samples[:, 4:5], autoencoder, scheduler)
-                terrain = torch.sign(terrain) * torch.square(terrain)
-                
-                real_terrain = batch['ground_truth']
-                real_terrain = torch.sign(real_terrain) * torch.square(real_terrain)
+                    real_terrain = batch['ground_truth']
+                    real_terrain = torch.sign(real_terrain) * torch.square(real_terrain)
                 
                 # Update KID metric for original terrain
                 kid.update(self._normalize_and_process_terrain(terrain), real=False)
@@ -277,7 +278,8 @@ class DiffusionTrainer(Trainer):
             
             autoencoder = autoencoder.to('cpu')
             
-            # Calculate final KID scores
+            # Calculate final KID scores on CPU in fp32 for numerical stability
+            kid = kid.to('cpu')
             kid_mean, kid_std = kid.compute()
             print(f"Final KID Score (original): {kid_mean.item():.6f} ± {kid_std.item():.6f}")
             return {
@@ -292,8 +294,8 @@ class DiffusionTrainer(Trainer):
         
         scheduler = self.scheduler
         
-        with torch.no_grad(), self.accelerator.autocast():
-            kid = KernelInceptionDistance(normalize=True, subset_size=min(50, n_images // 4)).to(self.accelerator.device)
+        with torch.no_grad():
+            kid = KernelInceptionDistance(normalize=False, subset_size=min(50, n_images // 4)).to(self.accelerator.device)
             
             samples_generated = 0
             
@@ -304,46 +306,48 @@ class DiffusionTrainer(Trainer):
                 lowfreq = batch['lowfreq']
                 conditional_inputs = batch.get('cond_inputs')
                 
-                # Generate samples using diffusion sampling
-                samples = torch.randn(images.shape, generator=generator, device=images.device) * scheduler.sigmas[0]
+                with self.accelerator.autocast():
+                    # Generate samples using diffusion sampling
+                    samples = torch.randn(images.shape, generator=generator, device=images.device) * scheduler.sigmas[0]
+                    
+                    # Sampling loop
+                    scheduler.set_timesteps(self.config['evaluation']['kid_scheduler_steps'])
+                    for t, sigma in zip(scheduler.timesteps, scheduler.sigmas):
+                        t, sigma = t.to(samples.device), sigma.to(samples.device)
+                        
+                        scaled_input = scheduler.precondition_inputs(samples, sigma)
+                        cnoise = scheduler.trigflow_precondition_noise(sigma.view(-1).expand(samples.shape[0]))
+                        
+                        # Get model predictions
+                        x = torch.cat([scaled_input, cond_img], dim=1)
+                        self.model.eval()
+                        model_output = self.model(x, noise_labels=cnoise, conditional_inputs=conditional_inputs)
+                        
+                        samples = scheduler.step(model_output, t, samples).prev_sample
+                    
+                    # Only evaluate first channel
+                    samples = samples[:, :1] / scheduler.config.sigma_data
+                    real_samples = images[:, :1] / scheduler.config.sigma_data
                 
-                # Sampling loop
-                scheduler.set_timesteps(self.config['evaluation']['kid_scheduler_steps'])
-                for t, sigma in zip(scheduler.timesteps, scheduler.sigmas):
-                    t, sigma = t.to(samples.device), sigma.to(samples.device)
-                    
-                    scaled_input = scheduler.precondition_inputs(samples, sigma)
-                    cnoise = scheduler.trigflow_precondition_noise(sigma.view(-1).expand(samples.shape[0]))
-                    
-                    # Get model predictions
-                    x = torch.cat([scaled_input, cond_img], dim=1)
-                    self.model.eval()
-                    model_output = self.model(x, noise_labels=cnoise, conditional_inputs=conditional_inputs)
-                    
-                    samples = scheduler.step(model_output, t, samples).prev_sample
-                
-                # Only evaluate first channel
-                samples = samples[:, :1] / scheduler.config.sigma_data
-                real_samples = images[:, :1] / scheduler.config.sigma_data
-            
                 residual_std = torch.as_tensor(self.val_dataset.base_dataset.residual_std, dtype=images.dtype).to(images.device)
                 residual_mean = torch.as_tensor(self.val_dataset.base_dataset.residual_mean, dtype=images.dtype).to(images.device)
                 output_full = laplacian_decode(samples * residual_std + residual_mean, lowfreq, extrapolate=True)
-                images_full = laplacian_decode(images * residual_std + residual_mean, lowfreq, extrapolate=True)
+                images_full = laplacian_decode(real_samples * residual_std + residual_mean, lowfreq, extrapolate=True)
                 
                 output_full = torch.sign(output_full) * torch.square(output_full)
                 images_full = torch.sign(images_full) * torch.square(images_full)
                 
-                # Update KID metric for original samples
-                kid.update(self._normalize_and_process_terrain(samples), real=False)
-                kid.update(self._normalize_and_process_terrain(real_samples), real=True)
+                # Update KID metric for reconstructed full-resolution terrain
+                kid.update(self._normalize_and_process_terrain(output_full), real=False)
+                kid.update(self._normalize_and_process_terrain(images_full), real=True)
                 
                 samples_generated += images.shape[0]
                 pbar.update(images.shape[0])
             
             pbar.close()
             
-            # Calculate final KID scores
+            # Calculate final KID scores on CPU in fp32 for numerical stability
+            kid = kid.to('cpu')
             kid_mean, kid_std = kid.compute()
             print(f"Final Decoder KID Score (original): {kid_mean.item():.6f} ± {kid_std.item():.6f}")
             return {
