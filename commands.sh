@@ -5,6 +5,8 @@ python -m terrain_diffusion build-tiles-dataset \
   --resolution 30 \
   --overwrite
 
+# 2.5) Residual stats を config に反映
+
 # 3) AutoEncoder 学習
 python -m terrain_diffusion train \
   --config ./configs/autoencoder/autoencoder_x8_tiles.cfg
@@ -76,4 +78,4 @@ cp -R terrain-diffusion/checkpoints/models/diffusion_decoder-64x3_tiles/* \
       terrain-diffusion-30m-tiles/decoder_model/
 
 # 12) explore 実行
-python -m terrain_diffusion explore ../terrain-diffusion-30m-tiles
+python -m terrain_diffusion explore ../terrain-diffusion-tiles --seed 0
