@@ -95,8 +95,8 @@ def build_tiles_dataset(
                     click.echo(f"Skipping {tile_path.name}: expected 2D array, got shape {tile.shape}")
                     continue
 
-                tile[np.isclose(tile, -9999.0)] = np.nan
-                tile[np.isfinite(tile) & (tile < -10.0)] = np.nan
+                # tile[np.isclose(tile, -9999.0)] = np.nan
+                # tile[np.isfinite(tile) & (tile < -10.0)] = np.nan
                 tile[np.isinf(tile)] = np.nan
                 if np.isnan(tile).all():
                     click.echo(f"Skipping {tile_path.name}: all values are NaN")

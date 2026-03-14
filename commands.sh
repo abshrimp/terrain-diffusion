@@ -37,7 +37,7 @@ accelerate launch -m terrain_diffusion train \
   --override training.dynamo_backend=\"no\" \
   --override training.mixed_precision=\"bf16\" \
   --override training.batch_size=1 \
-  --override evaluation.validate_epochs=50
+  --override evaluation.validate_epochs=100
 
 # 7) Decoder を推論用に保存
 python -m terrain_diffusion.training.save_model \
