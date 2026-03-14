@@ -95,7 +95,7 @@ def build_tiles_dataset(
                     click.echo(f"Skipping {tile_path.name}: expected 2D array, got shape {tile.shape}")
                     continue
 
-                tile[tile < -9000.0] = 0.0
+                tile[tile < -9000.0] = -0.1
                 tile[np.isinf(tile)] = np.nan
                 if np.isnan(tile).all():
                     click.echo(f"Skipping {tile_path.name}: all values are NaN")
@@ -171,9 +171,6 @@ def build_tiles_dataset(
                     residual_m2 += delta * delta2
 
                 kept_tiles += 1
-
-                if np.all(tile == 0.0):
-                    print(f"Warning: all-zero tile detected: {tile_path}")
 
         if kept_tiles == 0:
             raise click.ClickException("No valid tiles were converted")
