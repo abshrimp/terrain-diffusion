@@ -79,3 +79,28 @@ cp -R terrain-diffusion/checkpoints/models/diffusion_decoder-64x3_tiles/* \
 
 # 12) explore 実行
 python -m terrain_diffusion explore ../terrain-diffusion-tiles --seed 0
+
+
+
+
+# ランダムseedを3個生成
+python util_scripts/generate_coarse.py ../terrain-diffusion-30m \
+    --count 3 \
+    --output-dir outputs/coarse_worlds
+
+# または明示的なseedを指定
+python util_scripts/generate_coarse.py ../terrain-diffusion-30m \
+    --seed 12345 --seed 67890
+
+
+# coarse_elev.png のX軸(j)・Y軸(i)を見て範囲を指定
+python util_scripts/generate_detail.py \
+    ../terrain-diffusion-30m \
+    outputs/coarse_worlds/seed_12345 \
+    --ci0 10 --ci1 12 --cj0 10 --cj1 12
+
+# 指定した範囲のフォルダに以下が出力される:
+#   elevation.npy   — float32 (H,W) 標高データ [m]
+#   relief.png      — 陰影起伏図
+#   elevation.png   — terrain カラーマップ
+#   result_params.json

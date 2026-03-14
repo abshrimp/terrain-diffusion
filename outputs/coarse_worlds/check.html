@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>範囲選択座標表示</title>
+<style>
+  body { margin: 0; display: flex; flex-direction: column; align-items: center; }
+  #coords { margin: 10px; font-family: monospace; }
+  canvas { border: 1px solid #000; cursor: crosshair; }
+</style>
+</head>
+<body>
+
+<input type="file" id="fileInput" accept="image/png">
+<div id="coords">ドラッグして範囲を選択してください</div>
+<canvas id="canvas"></canvas>
+
+<script>
+const fileInput = document.getElementById("fileInput");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const coords = document.getElementById("coords");
+
+let startX = 0, startY = 0;
+let isDragging = false;
+
+// 100x100スナップ
+function snap100(x, y, imgX, imgY, imgW, imgH) {
+    const nx = (x - imgX) / imgW * 100;
+    const ny = (y - imgY) / imgH * 100;
+    return [Math.floor(Math.max(0, Math.min(99, nx))), Math.floor(Math.max(0, Math.min(99, ny)))];
+}
+
+// キャンバスサイズ調整（CSSではなく実際の描画サイズ）
+function resizeCanvas() {
+    canvas.width = Math.floor(window.innerWidth * 0.8);
+    canvas.height = Math.floor(window.innerHeight * 0.8);
+    if (canvas.image) drawImage();
+}
+window.addEventListener("resize", resizeCanvas);
+setTimeout(resizeCanvas, 0);
+
+// 画像描画
+function drawImage() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const img = canvas.image;
+    if (!img) return;
+    const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    const x = (canvas.width - w) / 2;
+    const y = (canvas.height - h) / 2;
+    ctx.drawImage(img, x, y, w, h);
+    canvas.imgX = x;
+    canvas.imgY = y;
+    canvas.imgW = w;
+    canvas.imgH = h;
+}
+
+// 赤枠と出力更新
+function updateSelection(mouseX, mouseY) {
+    drawImage();
+    const [x, y] = snap100(mouseX, mouseY, canvas.imgX, canvas.imgY, canvas.imgW, canvas.imgH);
+
+    const rx = Math.min(startX, x);
+    const ry = Math.min(startY, y);
+    const rw = Math.abs(x - startX);
+    const rh = Math.abs(y - startY);
+
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(
+        canvas.imgX + (rx / 100) * canvas.imgW,
+        canvas.imgY + (ry / 100) * canvas.imgH,
+        ((rw + 1) / 100) * canvas.imgW,
+        ((rh + 1) / 100) * canvas.imgH
+    );
+
+    const ci0 = Math.min(startX, x) - 50;
+    const ci1 = Math.max(startX, x) - 50;
+    const cj0 = Math.min(startY, y) - 50;
+    const cj1 = Math.max(startY, y) - 50;
+
+    coords.textContent = `--ci0 ${ci0} --ci1 ${ci1 + 1} --cj0 ${cj0} --cj1 ${cj1 + 1}`;
+}
+
+// ファイル選択
+fileInput.addEventListener("change", e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+        canvas.image = img;
+        drawImage();
+    };
+    img.src = URL.createObjectURL(file);
+});
+
+// ドラッグ開始
+canvas.addEventListener("mousedown", e => {
+    if (!canvas.image) return;
+    const rect = canvas.getBoundingClientRect();
+    // マウス座標をキャンバス描画座標に変換
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    [startX, startY] = snap100((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY, canvas.imgX, canvas.imgY, canvas.imgW, canvas.imgH);
+    isDragging = true;
+});
+
+// ドラッグ中
+canvas.addEventListener("mousemove", e => {
+    if (!isDragging || !canvas.image) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    updateSelection((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+});
+
+// ドラッグ終了
+canvas.addEventListener("mouseup", e => {
+    if (!isDragging || !canvas.image) return;
+    isDragging = false;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    updateSelection((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+});
+</script>
+
+</body>
+</html>

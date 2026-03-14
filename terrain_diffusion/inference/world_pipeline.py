@@ -362,6 +362,12 @@ class WorldPipeline(ConfigMixin):
         self.base_model: EDMUnet2D | None = None
         self.decoder_model: EDMUnet2D | None = None
         
+        # Progress bar state - managed by get()
+        self._latent_pbar = None
+        self._decoder_pbar = None
+        self._latent_done = 0
+        self._decoder_done = 0
+        
         # Runtime state - initialized via bind()
         self.tile_store = None
         self._hdf5_file_path = None
@@ -386,6 +392,27 @@ class WorldPipeline(ConfigMixin):
         if self.cache_limit is not None:
             kwargs['cache_limit'] = self.cache_limit
         return kwargs
+
+    def _advance_progress(self, stage: str, amount: int = 1) -> tuple[int, int | None]:
+        """Advance progress for latent/decoder stage and expand total if under-estimated."""
+        if stage == 'latent':
+            pbar = self._latent_pbar
+            self._latent_done += amount
+            done = self._latent_done
+        elif stage == 'decoder':
+            pbar = self._decoder_pbar
+            self._decoder_done += amount
+            done = self._decoder_done
+        else:
+            raise ValueError(f"Unknown progress stage: {stage}")
+
+        if pbar is not None:
+            if pbar.total is not None and pbar.n + amount > pbar.total:
+                pbar.total = pbar.n + amount
+            pbar.update(amount)
+            pbar.refresh()
+            return done, pbar.total
+        return done, None
     
     def _apply_dtype_and_compile(self):
         """Apply eval mode, dtype conversion and torch.compile to models."""
@@ -842,9 +869,15 @@ class WorldPipeline(ConfigMixin):
         TILE_SIZE = 64
         TILE_STRIDE = TILE_SIZE // 2
         NOISE_LEVEL = 0.0
-        
+
+        latent_idx, latent_total = self._advance_progress('latent', 1)
         if self.log_mode == 'verbose':
-            print(f"Latent f batch size {len(ctxs)} at {ctxs}")
+            total_text = latent_total if latent_total is not None else '?'
+            msg = f"Latent {latent_idx}/{total_text}: batch size {len(ctxs)} at {ctxs}"
+            if self._latent_pbar is not None:
+                self._latent_pbar.write(msg)
+            else:
+                print(msg)
         if MOCK:
             return [torch.ones((6, TILE_SIZE, TILE_SIZE)) for _ in ctxs]
         
@@ -972,9 +1005,15 @@ class WorldPipeline(ConfigMixin):
         """Run inference for one decoder tile."""
         TILE_SIZE = tile_size
         TILE_STRIDE = tile_stride
-        
+
+        decoder_idx, decoder_total = self._advance_progress('decoder', 1)
         if self.log_mode == 'verbose':
-            print(f"Residual f at {ctx}")
+            total_text = decoder_total if decoder_total is not None else '?'
+            msg = f"Residual {decoder_idx}/{total_text}: at {ctx}"
+            if self._decoder_pbar is not None:
+                self._decoder_pbar.write(msg)
+            else:
+                print(msg)
         if MOCK:
             return torch.ones((2, TILE_SIZE, TILE_SIZE))
         
@@ -1126,6 +1165,34 @@ class WorldPipeline(ConfigMixin):
         climate = torch.stack([temp_realistic, coarse_up[3], coarse_up[4], coarse_up[5], beta_up[0]])
         return climate
     
+    def _estimate_tile_counts(self, i1, j1, i2, j2):
+        """Estimate the number of decoder tiles and latent batches for a region."""
+        def ceil_div(a, b):
+            return -((-a) // b)
+
+        sigma = 5
+        kernel_size = (int(sigma * 2) // 2) * 2 + 1
+        pad_lr = kernel_size // 2 + 1
+        scale = self.latent_compression
+        pad_hr = pad_lr * scale
+
+        pi1 = ((i1 - pad_hr) // scale) * scale
+        pj1 = ((j1 - pad_hr) // scale) * scale
+        pi2 = ceil_div(i2 + pad_hr, scale) * scale
+        pj2 = ceil_div(j2 + pad_hr, scale) * scale
+
+        DTSTR = self.decoder_tile_stride
+        n_decoder = max(1, ceil_div(pi2 - pi1, DTSTR)) * max(1, ceil_div(pj2 - pj1, DTSTR))
+
+        LTSTR = 32  # latent TILE_SIZE // 2
+        li1, lj1 = pi1 // scale, pj1 // scale
+        li2, lj2 = pi2 // scale, pj2 // scale
+        n_latent_tiles = max(1, ceil_div(li2 - li1, LTSTR)) * max(1, ceil_div(lj2 - lj1, LTSTR))
+        n_latent_steps = 1 if self.onestep_latent else 2
+        n_latent_batches = ceil_div(n_latent_tiles * n_latent_steps, self.latents_batch_size)
+
+        return n_decoder, n_latent_batches
+
     def get(self, i1, j1, i2, j2, with_climate=True):
         """
         Get terrain data for the given bounding box.
@@ -1137,8 +1204,22 @@ class WorldPipeline(ConfigMixin):
         Returns:
             dict with 'elev' (H, W) in meters and optionally 'climate' (5, H, W)
         """
-        elev = self._compute_elev(i1, j1, i2, j2, self.residual, scale=self.latent_compression)
-        climate = self._compute_climate(i1, j1, i2, j2, elev, scale=self.latent_compression) if with_climate else None
+        from tqdm.auto import tqdm as _tqdm
+        n_decoder, n_latent_batches = self._estimate_tile_counts(i1, j1, i2, j2)
+        self._latent_done = 0
+        self._decoder_done = 0
+        self._latent_pbar = _tqdm(total=n_latent_batches, desc="Latent", unit="batch")
+        self._decoder_pbar = _tqdm(total=n_decoder, desc="Decoder", unit="tile")
+        try:
+            elev = self._compute_elev(i1, j1, i2, j2, self.residual, scale=self.latent_compression)
+            climate = self._compute_climate(i1, j1, i2, j2, elev, scale=self.latent_compression) if with_climate else None
+        finally:
+            self._latent_pbar.close()
+            self._decoder_pbar.close()
+            self._latent_pbar = None
+            self._decoder_pbar = None
+            self._latent_done = 0
+            self._decoder_done = 0
         
         return {
             'elev': elev,
