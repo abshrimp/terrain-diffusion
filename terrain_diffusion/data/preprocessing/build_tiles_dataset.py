@@ -172,6 +172,9 @@ def build_tiles_dataset(
 
                 kept_tiles += 1
 
+                if np.all(tile == 0.0):
+                    print(f"Warning: all-zero tile detected: {tile_path}")
+
         if kept_tiles == 0:
             raise click.ClickException("No valid tiles were converted")
 
