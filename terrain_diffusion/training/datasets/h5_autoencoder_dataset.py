@@ -71,7 +71,13 @@ class H5AutoencoderDataset(Dataset):
                         if pct_land_valid and split_valid:
                             self.keys[i].add((chunk_id, res, subchunk_id))
         self.keys = [list(keys) for keys in self.keys]
-        
+
+        # Zero out weights for empty subsets to avoid sampling from them
+        for i, keys in enumerate(self.keys):
+            if len(keys) == 0:
+                print(f"Warning: subset {i} (res={subset_resolutions[i]}, pct_land={pct_land_ranges[i]}) has no matching keys. Setting its weight to 0.")
+                self.subset_weights[i] = 0
+
         self.residual_mean = residual_mean
         self.residual_std = residual_std
         self.rng = torch.Generator()
