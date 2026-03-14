@@ -97,7 +97,8 @@ python util_scripts/generate_coarse.py ../terrain-diffusion-30m \
 python util_scripts/generate_detail.py \
     ../terrain-diffusion-30m \
     outputs/coarse_worlds/seed_12345 \
-    --ci0 10 --ci1 12 --cj0 10 --cj1 12
+    --ci0 10 --ci1 12 --cj0 10 --cj1 12 \
+    --hydro-enforce
 
 # 指定した範囲のフォルダに以下が出力される:
 #   elevation.npy   — float32 (H,W) 標高データ [m]

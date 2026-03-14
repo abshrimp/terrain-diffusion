@@ -4,6 +4,7 @@ import time
 import json
 import os
 import atexit
+import math
 
 import h5py
 import torch
@@ -307,6 +308,11 @@ class WorldPipeline(ConfigMixin):
         onestep_latent: bool = False,
         decoder_tile_size: int = 512,
         decoder_tile_stride: int = 384,
+        hydrology_enforce: bool = False,
+        hydrology_max_raise: float | None = 120.0,
+        hydrology_epsilon: float = 1e-3,
+        hydrology_connectivity: int = 8,
+        hydrology_smooth_iterations: int = 0,
         **deprecated_kwargs,
     ):
         super().__init__()
@@ -333,6 +339,11 @@ class WorldPipeline(ConfigMixin):
         self.onestep_latent = onestep_latent
         self.decoder_tile_size = decoder_tile_size
         self.decoder_tile_stride = decoder_tile_stride
+        self.hydrology_enforce = hydrology_enforce
+        self.hydrology_max_raise = hydrology_max_raise
+        self.hydrology_epsilon = hydrology_epsilon
+        self.hydrology_connectivity = hydrology_connectivity
+        self.hydrology_smooth_iterations = hydrology_smooth_iterations
         self.kwargs = {
             'latent_compression': latent_compression,
             'log_mode': log_mode,
@@ -1193,6 +1204,36 @@ class WorldPipeline(ConfigMixin):
 
         return n_decoder, n_latent_batches
 
+    def _apply_hydrology_consistency(self, elev: torch.Tensor) -> torch.Tensor:
+        """Apply optional hydrologic consistency fixes on land elevations."""
+        if not self.hydrology_enforce:
+            return elev
+
+        elev_np = elev.detach().cpu().float().numpy()
+        ocean_mask = np.isnan(elev_np) | (elev_np <= 0)
+
+        max_raise = self.hydrology_max_raise
+        if max_raise is not None and not math.isfinite(max_raise):
+            max_raise = None
+
+        filled = fill_depressions_priority_flood(
+            elev_np,
+            epsilon=max(self.hydrology_epsilon, 0.0),
+            max_raise=max_raise,
+            connectivity=4 if int(self.hydrology_connectivity) == 4 else 8,
+            in_place=False,
+            nodata=None,
+        )
+
+        if self.hydrology_smooth_iterations > 0:
+            filled = smooth_river_bumps(
+                filled,
+                iterations=int(self.hydrology_smooth_iterations),
+            )
+
+        filled[ocean_mask] = elev_np[ocean_mask]
+        return torch.from_numpy(filled).to(device=elev.device, dtype=elev.dtype)
+
     def get(self, i1, j1, i2, j2, with_climate=True):
         """
         Get terrain data for the given bounding box.
@@ -1212,6 +1253,7 @@ class WorldPipeline(ConfigMixin):
         self._decoder_pbar = _tqdm(total=n_decoder, desc="Decoder", unit="tile")
         try:
             elev = self._compute_elev(i1, j1, i2, j2, self.residual, scale=self.latent_compression)
+            elev = self._apply_hydrology_consistency(elev)
             climate = self._compute_climate(i1, j1, i2, j2, elev, scale=self.latent_compression) if with_climate else None
         finally:
             self._latent_pbar.close()

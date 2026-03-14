@@ -72,6 +72,16 @@ COARSE_TO_NATIVE = 256
               help="Save elevation as a float32 .npy file.")
 @click.option("--save-png/--no-save-png", default=True, show_default=True,
               help="Save relief and elevation colormap PNG images.")
+@click.option("--hydro-enforce/--no-hydro-enforce", default=False, show_default=True,
+              help="Apply hydrology consistency (depression fill + optional smoothing).")
+@click.option("--hydro-max-raise", type=float, default=120.0, show_default=True,
+              help="Maximum depression fill depth in meters. Use negative to disable the cap.")
+@click.option("--hydro-epsilon", type=float, default=1e-3, show_default=True,
+              help="Small gradient added when filling flats.")
+@click.option("--hydro-connectivity", type=click.Choice(["4", "8"]), default="8", show_default=True,
+              help="Neighbor connectivity for depression filling.")
+@click.option("--hydro-smooth-iters", type=int, default=0, show_default=True,
+              help="Optional river bump smoothing iterations after fill.")
 @click.option("--kwarg", "extra_kwargs", multiple=True,
               help="Extra key=value pipeline kwargs.")
 def main(
@@ -89,6 +99,11 @@ def main(
     device,
     save_npy,
     save_png,
+    hydro_enforce,
+    hydro_max_raise,
+    hydro_epsilon,
+    hydro_connectivity,
+    hydro_smooth_iters,
     extra_kwargs,
 ):
     """Generate a high-resolution elevation tile from a saved coarse world.
@@ -147,6 +162,7 @@ def main(
             print("Warning: Using CPU (CUDA not available).")
 
     extra = parse_kwargs(extra_kwargs)
+    hydro_max_raise_effective = None if hydro_max_raise < 0 else hydro_max_raise
 
     # ── Read seed from params.json ────────────────────────────────────────────
     seed = None
@@ -168,6 +184,11 @@ def main(
         torch_compile=torch_compile,
         dtype=dtype,
         caching_strategy='indirect',
+        hydrology_enforce=hydro_enforce,
+        hydrology_max_raise=hydro_max_raise_effective,
+        hydrology_epsilon=hydro_epsilon,
+        hydrology_connectivity=int(hydro_connectivity),
+        hydrology_smooth_iterations=hydro_smooth_iters,
         **extra,
     )
     world.to(device)
@@ -248,6 +269,11 @@ def main(
             'height_px': h,
             'width_px': w,
             'native_resolution_m': res,
+            'hydrology_enforce': hydro_enforce,
+            'hydrology_max_raise_m': hydro_max_raise_effective,
+            'hydrology_epsilon': hydro_epsilon,
+            'hydrology_connectivity': int(hydro_connectivity),
+            'hydrology_smooth_iterations': hydro_smooth_iters,
             'elev_min_m': elev_min,
             'elev_max_m': elev_max,
             'elev_mean_m': elev_mean,
