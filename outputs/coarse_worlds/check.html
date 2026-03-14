@@ -76,10 +76,10 @@ function updateSelection(mouseX, mouseY) {
         ((rh + 1) / 100) * canvas.imgH
     );
 
-    const ci0 = Math.min(startX, x) - 50;
-    const ci1 = Math.max(startX, x) - 50;
-    const cj0 = Math.min(startY, y) - 50;
-    const cj1 = Math.max(startY, y) - 50;
+    const ci0 = Math.min(startY, y) - 50;
+    const ci1 = Math.max(startY, y) - 50;
+    const cj0 = Math.min(startX, x) - 50;
+    const cj1 = Math.max(startX, x) - 50;
 
     coords.textContent = `--ci0 ${ci0} --ci1 ${ci1 + 1} --cj0 ${cj0} --cj1 ${cj1 + 1}`;
 }
