@@ -249,12 +249,37 @@ class H5LatentsDataset(Dataset):
         
         # Draw a random subset based on subset weights
         subset_weights_tensor = torch.tensor(self.subset_weights, dtype=torch.float32)
-        subset_idx = torch.multinomial(subset_weights_tensor, 1, generator=self.rng).item()
+        subset_sizes = []
+        for subset_i in range(len(self.subset_weights)):
+            if self.beauty_dist[subset_i]:
+                subset_size = sum(len(self.keys[subset_i][i]) for i in range(5))
+            else:
+                subset_size = len(self.keys[subset_i])
+            subset_sizes.append(subset_size)
+        subset_sizes_tensor = torch.tensor(subset_sizes, dtype=torch.float32)
+        valid_subset_mask = subset_sizes_tensor > 0
+        if not valid_subset_mask.any():
+            raise RuntimeError(
+                f"No valid samples found for split={self.split!r}, subset_resolutions={self.subset_resolutions}, "
+                f"pct_land_ranges={self.pct_land_ranges}."
+            )
+
+        sample_subset_weights = subset_weights_tensor * valid_subset_mask.float()
+        if sample_subset_weights.sum() <= 0:
+            sample_subset_weights = valid_subset_mask.float()
+        subset_idx = torch.multinomial(sample_subset_weights, 1, generator=self.rng).item()
         class_label = self.subset_class_labels[subset_idx] if self.subset_class_labels is not None else None
         
         if self.beauty_dist[subset_idx]:
             subset_lens = torch.tensor([len(self.keys[subset_idx][i]) for i in range(5)]).float()
-            baseline_probs = torch.log(subset_lens / subset_lens.sum())
+            valid_beauty_mask = subset_lens > 0
+            if not valid_beauty_mask.any():
+                raise RuntimeError(f"Subset {subset_idx} has no samples in any beauty bin.")
+
+            baseline_probs = torch.full_like(subset_lens, -torch.inf)
+            baseline_probs[valid_beauty_mask] = torch.log(
+                subset_lens[valid_beauty_mask] / subset_lens[valid_beauty_mask].sum()
+            )
             histogram_raw = torch.randn(5, generator=self.rng) if not self.val_dset else torch.zeros(5)
             histogram = torch.softmax(histogram_raw + baseline_probs, dim=0)
             beauty_score = torch.multinomial(histogram, 1, generator=self.rng).item()
@@ -262,12 +287,8 @@ class H5LatentsDataset(Dataset):
             chunk_id, res, subchunk_id = self.keys[subset_idx][beauty_score][index]
         else:
             histogram_raw = torch.randn(5, generator=self.rng)
-            if self.beauty_dist != [False] * len(self.subset_weights):
-                index = torch.randint(len(self.keys[subset_idx][0]), (1,), generator=self.rng).item()
-                chunk_id, res, subchunk_id = self.keys[subset_idx][0][index]
-            else:
-                index = torch.randint(len(self.keys[subset_idx]), (1,), generator=self.rng).item()
-                chunk_id, res, subchunk_id = self.keys[subset_idx][index]
+            index = torch.randint(len(self.keys[subset_idx]), (1,), generator=self.rng).item()
+            chunk_id, res, subchunk_id = self.keys[subset_idx][index]
         
         with h5py.File(self.h5_file, 'r') as f:
             group_path = f"{res}/{chunk_id}/{subchunk_id}"
