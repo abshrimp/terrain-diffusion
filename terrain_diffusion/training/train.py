@@ -26,6 +26,30 @@ def _register_safe_globals():
     ])
 
 
+def _resolve_lr_sched_epoch_overrides(config):
+    lr_sched_cfg = config.get('lr_sched')
+    training_cfg = config.get('training')
+    if not lr_sched_cfg or not training_cfg:
+        return
+
+    if 'epoch_steps' not in training_cfg or 'batch_size' not in training_cfg:
+        return
+
+    nimg_per_epoch = int(training_cfg['epoch_steps']) * int(training_cfg['batch_size'])
+
+    if 'decay_start_epoch' in lr_sched_cfg and 'decay_start_nimg' not in lr_sched_cfg:
+        lr_sched_cfg['decay_start_nimg'] = int(lr_sched_cfg['decay_start_epoch']) * nimg_per_epoch
+
+    if 'decay_end_epoch' in lr_sched_cfg and 'decay_end_nimg' not in lr_sched_cfg:
+        lr_sched_cfg['decay_end_nimg'] = int(lr_sched_cfg['decay_end_epoch']) * nimg_per_epoch
+
+    if 'warmup_epochs' in lr_sched_cfg and 'warmup_nimg' not in lr_sched_cfg:
+        lr_sched_cfg['warmup_nimg'] = int(lr_sched_cfg['warmup_epochs']) * nimg_per_epoch
+
+    if 'ref_epoch' in lr_sched_cfg and 'ref_nimg' not in lr_sched_cfg:
+        lr_sched_cfg['ref_nimg'] = int(lr_sched_cfg['ref_epoch']) * nimg_per_epoch
+
+
 @click.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.option("-c", "--config", "config_path", type=click.Path(exists=True), required=True, help="Path to the configuration file")
 @click.option("--ckpt", "ckpt_path", type=click.Path(exists=True), required=False, help="Path to a checkpoint to resume training from")
@@ -72,6 +96,8 @@ def main(ctx, config_path, ckpt_path, model_ckpt_path, debug_run, resume_id, ove
         except json.JSONDecodeError:
             pass
         set_nested_value(config, key_path, value, o)
+
+    _resolve_lr_sched_epoch_overrides(config)
     
     if debug_run:
         config['wandb']['mode'] = 'disabled'

@@ -4,7 +4,7 @@ from terrain_diffusion.models.perceptron import Perceptron
 from terrain_diffusion.training.datasets import *
 from terrain_diffusion.data.laplacian_encoder import *
 from terrain_diffusion.training.datasets.h5_superres_terrain_dataset import H5SuperresTerrainDataset
-from terrain_diffusion.training.loss import CosineLRScheduler, SqrtLRScheduler, ConstantLRScheduler
+from terrain_diffusion.training.loss import CosineLRScheduler, SqrtLRScheduler, ConstantLRScheduler, CosineWindowLRScheduler
 from terrain_diffusion.scheduler.dpmsolver import EDMDPMSolverMultistepScheduler
 from terrain_diffusion.models.edm_autoencoder import EDMAutoencoder
 from terrain_diffusion.models.edm_unet import EDMUnet2D
@@ -27,6 +27,7 @@ def build_registry():
     registry.lr_sched.register("sqrt", func=SqrtLRScheduler)
     registry.lr_sched.register("cosine", func=CosineLRScheduler)
     registry.lr_sched.register("constant", func=ConstantLRScheduler)
+    registry.lr_sched.register("cosine_window", func=CosineWindowLRScheduler)
     
     registry.dataset = catalogue.create("confection", "datasets", entry_points=False)
     registry.dataset.register("h5_decoder_terrain", func=H5DecoderTerrainDataset)

@@ -34,23 +34,17 @@ python -m terrain_diffusion build-encoded-dataset \
 sudo mount -o remount,size=8G /dev/shm
 
 # 6) Decoder 学習
-DECODER_BATCH_SIZE=1
-DECODER_EPOCH_STEPS=1024
-DECODER_TOTAL_EPOCHS=200
-DECODER_DECAY_START_EPOCH=100
-DECODER_WARMUP_EPOCHS=10
-
-DECODER_DECAY_START_NIMG=$((DECODER_DECAY_START_EPOCH * DECODER_EPOCH_STEPS * DECODER_BATCH_SIZE))
-DECODER_WARMUP_NIMG=$((DECODER_WARMUP_EPOCHS * DECODER_EPOCH_STEPS * DECODER_BATCH_SIZE))
-
 accelerate launch -m terrain_diffusion train \
   --config ./configs/diffusion_decoder/diffusion_decoder_64-3_tiles.cfg \
   --override training.dynamo_backend=\"no\" \
   --override training.mixed_precision=\"bf16\" \
-  --override training.batch_size=${DECODER_BATCH_SIZE} \
-  --override training.epochs=${DECODER_TOTAL_EPOCHS} \
-  --override lr_sched.ref_nimg=${DECODER_DECAY_START_NIMG} \
-  --override lr_sched.warmup_nimg=${DECODER_WARMUP_NIMG} \
+  --override training.batch_size=1 \
+  --override training.epochs=200 \
+  --override lr_sched.@lr_sched=\"cosine_window\" \
+  --override lr_sched.decay_start_epoch=100 \
+  --override lr_sched.decay_end_epoch=200 \
+  --override lr_sched.warmup_epochs=10 \
+  --override lr_sched.min_lr_ratio=0.0 \
   --override evaluation.validate_epochs=100
 
 # 7) Decoder を推論用に保存
