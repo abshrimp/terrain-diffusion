@@ -147,7 +147,7 @@ class H5LatentsDataset(Dataset):
         self.rng.manual_seed(int(seed))
         
     def _get_cond_image(self, f, group_path, li, lj, lh, lw, flip, rotate_k, raw=False):
-        HALO = 32
+        HALO = self.crop_size // 2
         data_lowres_exact = f[f"{group_path}/lowres_exact"]  # same shape as data_lowfreq
         H, W = data_lowres_exact.shape
 
