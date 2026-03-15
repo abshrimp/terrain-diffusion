@@ -107,7 +107,7 @@ class H5LatentsDataset(Dataset):
                                 beauty_score = max(1, min(5, round(beauty_score))) - 1
                                 self.keys[i][beauty_score].add((chunk_id, res, subchunk_id))
                             else:
-                                self.keys[i][0].add((chunk_id, res, subchunk_id))
+                                self.keys[i].add((chunk_id, res, subchunk_id))
         if self.beauty_dist != [False] * len(subset_weights):
             self.keys = [[sorted(list(subkeys)) for subkeys in keys] for keys in self.keys]
             print("Using beauty distribution. Have sizes:", [[len(subkeys) for subkeys in keys] for keys in self.keys])
@@ -262,8 +262,12 @@ class H5LatentsDataset(Dataset):
             chunk_id, res, subchunk_id = self.keys[subset_idx][beauty_score][index]
         else:
             histogram_raw = torch.randn(5, generator=self.rng)
-            index = torch.randint(len(self.keys[subset_idx][0]), (1,), generator=self.rng).item()
-            chunk_id, res, subchunk_id = self.keys[subset_idx][0][index]
+            if self.beauty_dist != [False] * len(self.subset_weights):
+                index = torch.randint(len(self.keys[subset_idx][0]), (1,), generator=self.rng).item()
+                chunk_id, res, subchunk_id = self.keys[subset_idx][0][index]
+            else:
+                index = torch.randint(len(self.keys[subset_idx]), (1,), generator=self.rng).item()
+                chunk_id, res, subchunk_id = self.keys[subset_idx][index]
         
         with h5py.File(self.h5_file, 'r') as f:
             group_path = f"{res}/{chunk_id}/{subchunk_id}"
