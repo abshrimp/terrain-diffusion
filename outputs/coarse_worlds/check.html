@@ -12,6 +12,10 @@
 <body>
 
 <input type="file" id="fileInput" accept="image/png">
+<label>
+  <input type="checkbox" id="smoothToggle" checked>
+  アンチエイリアス
+</label>
 <div id="coords">ドラッグして範囲を選択してください</div>
 <canvas id="canvas"></canvas>
 
@@ -20,6 +24,7 @@ const fileInput = document.getElementById("fileInput");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const coords = document.getElementById("coords");
+const smoothToggle = document.getElementById("smoothToggle");
 
 let startX = 0, startY = 0;
 let isDragging = false;
@@ -28,10 +33,13 @@ let isDragging = false;
 function snap100(x, y, imgX, imgY, imgW, imgH) {
     const nx = (x - imgX) / imgW * 100;
     const ny = (y - imgY) / imgH * 100;
-    return [Math.floor(Math.max(0, Math.min(99, nx))), Math.floor(Math.max(0, Math.min(99, ny)))];
+    return [
+        Math.floor(Math.max(0, Math.min(99, nx))),
+        Math.floor(Math.max(0, Math.min(99, ny)))
+    ];
 }
 
-// キャンバスサイズ調整（CSSではなく実際の描画サイズ）
+// キャンバスサイズ調整
 function resizeCanvas() {
     canvas.width = Math.floor(window.innerWidth * 0.8);
     canvas.height = Math.floor(window.innerHeight * 0.8);
@@ -45,12 +53,17 @@ function drawImage() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const img = canvas.image;
     if (!img) return;
+
+    ctx.imageSmoothingEnabled = smoothToggle.checked;
+
     const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
     const w = img.width * scale;
     const h = img.height * scale;
     const x = (canvas.width - w) / 2;
     const y = (canvas.height - h) / 2;
+
     ctx.drawImage(img, x, y, w, h);
+
     canvas.imgX = x;
     canvas.imgY = y;
     canvas.imgW = w;
@@ -60,7 +73,15 @@ function drawImage() {
 // 赤枠と出力更新
 function updateSelection(mouseX, mouseY) {
     drawImage();
-    const [x, y] = snap100(mouseX, mouseY, canvas.imgX, canvas.imgY, canvas.imgW, canvas.imgH);
+
+    const [x, y] = snap100(
+        mouseX,
+        mouseY,
+        canvas.imgX,
+        canvas.imgY,
+        canvas.imgW,
+        canvas.imgH
+    );
 
     const rx = Math.min(startX, x);
     const ry = Math.min(startY, y);
@@ -69,6 +90,7 @@ function updateSelection(mouseX, mouseY) {
 
     ctx.strokeStyle = "red";
     ctx.lineWidth = 2;
+
     ctx.strokeRect(
         canvas.imgX + (rx / 100) * canvas.imgW,
         canvas.imgY + (ry / 100) * canvas.imgH,
@@ -81,49 +103,81 @@ function updateSelection(mouseX, mouseY) {
     const cj0 = Math.min(startX, x) - 50;
     const cj1 = Math.max(startX, x) - 50;
 
-    coords.textContent = `--ci0 ${ci0} --ci1 ${ci1 + 1} --cj0 ${cj0} --cj1 ${cj1 + 1}`;
+    coords.textContent =
+        `--ci0 ${ci0} --ci1 ${ci1 + 1} --cj0 ${cj0} --cj1 ${cj1 + 1}`;
 }
 
 // ファイル選択
 fileInput.addEventListener("change", e => {
     const file = e.target.files[0];
     if (!file) return;
+
     const img = new Image();
+
     img.onload = () => {
         canvas.image = img;
         drawImage();
     };
+
     img.src = URL.createObjectURL(file);
+});
+
+// アンチエイリアス切替
+smoothToggle.addEventListener("change", () => {
+    if (canvas.image) drawImage();
 });
 
 // ドラッグ開始
 canvas.addEventListener("mousedown", e => {
     if (!canvas.image) return;
+
     const rect = canvas.getBoundingClientRect();
-    // マウス座標をキャンバス描画座標に変換
+
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    [startX, startY] = snap100((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY, canvas.imgX, canvas.imgY, canvas.imgW, canvas.imgH);
+
+    [startX, startY] = snap100(
+        (e.clientX - rect.left) * scaleX,
+        (e.clientY - rect.top) * scaleY,
+        canvas.imgX,
+        canvas.imgY,
+        canvas.imgW,
+        canvas.imgH
+    );
+
     isDragging = true;
 });
 
 // ドラッグ中
 canvas.addEventListener("mousemove", e => {
     if (!isDragging || !canvas.image) return;
+
     const rect = canvas.getBoundingClientRect();
+
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    updateSelection((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+
+    updateSelection(
+        (e.clientX - rect.left) * scaleX,
+        (e.clientY - rect.top) * scaleY
+    );
 });
 
 // ドラッグ終了
 canvas.addEventListener("mouseup", e => {
     if (!isDragging || !canvas.image) return;
+
     isDragging = false;
+
     const rect = canvas.getBoundingClientRect();
+
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    updateSelection((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+
+    updateSelection(
+        (e.clientX - rect.left) * scaleX,
+        (e.clientY - rect.top) * scaleY
+    );
 });
 </script>
 

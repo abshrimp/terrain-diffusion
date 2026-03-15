@@ -260,3 +260,5 @@ tmp/
 
 
 /outputs/coarse_worlds/*/
+*.tif
+*.xml

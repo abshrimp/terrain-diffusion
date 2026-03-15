@@ -27,8 +27,8 @@ python -m terrain_diffusion build-encoded-dataset \
   --encoder ./checkpoints/models/autoencoder_x8_tiles \
   --use-fp16 \
   --compile-model \
-  --residual-mean 0.0 \
-  --residual-std 0.7 \
+  --residual-mean -0.001008 \
+  --residual-std 1.652817 \
   --overwrite
 
 sudo mount -o remount,size=8G /dev/shm
@@ -97,8 +97,8 @@ python util_scripts/generate_coarse.py ../terrain-diffusion-30m \
 python util_scripts/generate_detail.py \
     ../terrain-diffusion-30m \
     outputs/coarse_worlds/seed_12345 \
-    --ci0 10 --ci1 12 --cj0 10 --cj1 12 \
-    --hydro-enforce
+    --ci0 10 --ci1 12 --cj0 10 --cj1 12
+    # --hydro-enforce
 
 # 指定した範囲のフォルダに以下が出力される:
 #   elevation.npy   — float32 (H,W) 標高データ [m]

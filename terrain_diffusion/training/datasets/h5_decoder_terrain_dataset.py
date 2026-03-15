@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 import h5py
 import torch.nn.functional as F
+import warnings
 
 
 class H5DecoderTerrainDataset(Dataset):
@@ -79,6 +80,45 @@ class H5DecoderTerrainDataset(Dataset):
                             self.keys[i].add((chunk_id, res, subchunk_id))
         self.keys = [list(keys) for keys in self.keys]
         self.keys = [sorted(l, key=lambda x: (x[0], x[1], x[2])) for l in self.keys]
+
+        subset_sizes = [len(keys) for keys in self.keys]
+        if max(subset_sizes, default=0) == 0:
+            subset_details = ", ".join(
+                f"subset {idx}: resolution={res}, pct_land_range={pct_range}, split={split}, matches=0"
+                for idx, (pct_range, res) in enumerate(zip(self.pct_land_ranges, self.subset_resolutions))
+            )
+            raise ValueError(
+                f"No decoder training samples matched the configured filters in {self.h5_file}. {subset_details}"
+            )
+
+        adjusted_subset_weights = []
+        disabled_subsets = []
+        for idx, (weight, subset_size) in enumerate(zip(self.subset_weights, subset_sizes)):
+            if subset_size == 0:
+                adjusted_subset_weights.append(0.0)
+                if weight > 0:
+                    disabled_subsets.append(idx)
+            else:
+                adjusted_subset_weights.append(float(weight))
+
+        if sum(adjusted_subset_weights) <= 0:
+            raise ValueError(
+                f"All decoder dataset subset weights are zero after filtering empty subsets for {self.h5_file}. "
+                f"Subset sizes: {subset_sizes}, original weights: {self.subset_weights}"
+            )
+
+        if disabled_subsets:
+            disabled_details = ", ".join(
+                f"subset {idx} (resolution={self.subset_resolutions[idx]}, pct_land_range={self.pct_land_ranges[idx]}, split={split})"
+                for idx in disabled_subsets
+            )
+            warnings.warn(
+                f"Skipping empty decoder dataset subsets with no matching samples: {disabled_details}",
+                stacklevel=2,
+            )
+
+        self.subset_weights = adjusted_subset_weights
+        self.subset_weights_tensor = torch.tensor(self.subset_weights, dtype=torch.float32)
         
         self.residual_mean = residual_mean
         self.residual_std = residual_std
@@ -150,9 +190,14 @@ class H5DecoderTerrainDataset(Dataset):
 
     def __getitem__(self, index):
         # Draw a random subset based on subset weights
-        subset_weights_tensor = torch.tensor(self.subset_weights, dtype=torch.float32)
-        subset_idx = torch.multinomial(subset_weights_tensor, 1, generator=self.rng).item()
+        subset_idx = torch.multinomial(self.subset_weights_tensor, 1, generator=self.rng).item()
         class_label = self.subset_class_labels[subset_idx] if self.subset_class_labels is not None else None
+
+        if len(self.keys[subset_idx]) == 0:
+            raise RuntimeError(
+                f"Decoder dataset sampled empty subset {subset_idx}. "
+                f"Subset sizes: {[len(keys) for keys in self.keys]}, weights: {self.subset_weights}"
+            )
         
         index = torch.randint(len(self.keys[subset_idx]), (1,), generator=self.rng).item()
         chunk_id, res, subchunk_id = self.keys[subset_idx][index]
